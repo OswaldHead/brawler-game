@@ -21,7 +21,7 @@
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 
-const socket = io(); /* 🔥 FIX: same-origin connection */
+const socket = io(); // same domain = best stability
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -30,6 +30,9 @@ canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 const keys = {};
+
+/* 🔥 TARGETS + SMOOTH POSITIONS */
+const targets = {};
 const players = {};
 const bullets = [];
 
@@ -69,29 +72,40 @@ socket.on("connect", () => {
 
 socket.on("currentPlayers", (serverPlayers) => {
   for (let id in serverPlayers) {
-    players[id] = serverPlayers[id];
+    targets[id] = serverPlayers[id];
+    players[id] = { x: serverPlayers[id].x, y: serverPlayers[id].y };
   }
 });
 
 socket.on("newPlayer", ({ id, data }) => {
-  players[id] = data;
+  targets[id] = data;
+  players[id] = { x: data.x, y: data.y };
 });
 
 socket.on("removePlayer", (id) => {
+  delete targets[id];
   delete players[id];
 });
 
-/* 🔥 STATE SYNC (FIXED) */
+/* 🔥 STATE UPDATE */
 socket.on("state", (serverPlayers) => {
 
-  for (let id in players) {
-    if (!serverPlayers[id]) {
-      delete players[id];
+  for (let id in serverPlayers) {
+    if (!targets[id]) {
+      targets[id] = serverPlayers[id];
+      players[id] = { x: serverPlayers[id].x, y: serverPlayers[id].y };
     }
+
+    targets[id].x = serverPlayers[id].x;
+    targets[id].y = serverPlayers[id].y;
+    targets[id].hp = serverPlayers[id].hp;
   }
 
-  for (let id in serverPlayers) {
-    players[id] = serverPlayers[id];
+  for (let id in targets) {
+    if (!serverPlayers[id]) {
+      delete targets[id];
+      delete players[id];
+    }
   }
 });
 
@@ -100,7 +114,6 @@ function update() {
   const me = players[myId];
   if (!me) return;
 
-  /* send input only */
   socket.emit("move", {
     w: keys["w"],
     a: keys["a"],
@@ -123,20 +136,27 @@ function update() {
   }
 }
 
-/* ---------------- DRAW ---------------- */
+/* ---------------- DRAW (SMOOTHING HERE) ---------------- */
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  for (let id in players) {
-    const p = players[id];
+  for (let id in targets) {
+
+    if (!players[id]) {
+      players[id] = { x: targets[id].x, y: targets[id].y };
+    }
+
+    // 🔥 SMOOTH INTERPOLATION
+    players[id].x += (targets[id].x - players[id].x) * 0.15;
+    players[id].y += (targets[id].y - players[id].y) * 0.15;
 
     ctx.fillStyle = id === myId ? "cyan" : "red";
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
+    ctx.arc(players[id].x, players[id].y, 20, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "white";
-    ctx.fillText("HP: " + p.hp, p.x - 15, p.y - 30);
+    ctx.fillText("HP: " + (targets[id].hp || 100), players[id].x - 15, players[id].y - 30);
   }
 
   ctx.fillStyle = "yellow";
