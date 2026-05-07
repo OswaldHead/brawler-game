@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Brawler Game</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #111;
+      font-family: Arial, sans-serif;
+    }
+
+    canvas {
+      display: block;
+      margin: auto;
+      background: #222;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<!-- Socket.IO client -->
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<script>
+/* 🔥 CONNECT TO YOUR RENDER BACKEND */
+const socket = io("https://brawler-game.onrender.com");
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const keys = {};
+const players = {};
+const bullets = [];
+
+let myId = null;
+
+/* ---------------- CONTROLS ---------------- */
+document.addEventListener("keydown", e => {
+  keys[e.key.toLowerCase()] = true;
+});
+
+document.addEventListener("keyup", e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+/* ---------------- SHOOT ---------------- */
+document.addEventListener("click", (e) => {
+  const me = players[myId];
+  if (!me) return;
+
+  const angle = Math.atan2(e.clientY - me.y, e.clientX - me.x);
+
+  const bullet = {
+    x: me.x,
+    y: me.y,
+    vx: Math.cos(angle) * 8,
+    vy: Math.sin(angle) * 8
+  };
+
+  bullets.push(bullet);
+  socket.emit("shoot", bullet);
+});
+
+/* ---------------- SOCKET EVENTS ---------------- */
+socket.on("connect", () => {
+  myId = socket.id;
+});
+
+socket.on("currentPlayers", (serverPlayers) => {
+  Object.assign(players, serverPlayers);
+});
+
+socket.on("newPlayer", ({ id, data }) => {
+  players[id] = data;
+});
+
+socket.on("removePlayer", (id) => {
+  delete players[id];
+});
+
+/* ---------------- UPDATE ---------------- */
+function update() {
+  const me = players[myId];
+  if (!me) return;
+
+  if (keys["w"]) me.y -= 4;
+  if (keys["s"]) me.y += 4;
+  if (keys["a"]) me.x -= 4;
+  if (keys["d"]) me.x += 4;
+
+  socket.emit("move", { x: me.x, y: me.y });
+
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+
+    b.x += b.vx;
+    b.y += b.vy;
+
+    if (
+      b.x < 0 || b.x > canvas.width ||
+      b.y < 0 || b.y > canvas.height
+    ) {
+      bullets.splice(i, 1);
+    }
+  }
+}
+
+/* ---------------- DRAW ---------------- */
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  /* players */
+  for (let id in players) {
+    const p = players[id];
+
+    ctx.fillStyle = id === myId ? "cyan" : "red";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "white";
+    ctx.fillText("HP: " + p.hp, p.x - 15, p.y - 30);
+  }
+
+  /* bullets */
+  ctx.fillStyle = "yellow";
+  bullets.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+/* ---------------- GAME LOOP ---------------- */
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
