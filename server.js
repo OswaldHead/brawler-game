@@ -7,9 +7,7 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: "*"
-  }
+  cors: { origin: "*" }
 });
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -37,7 +35,7 @@ io.on("connection", (socket) => {
     data: players[socket.id]
   });
 
-  /* 🔥 STORE INPUT ONLY (IMPORTANT FIX) */
+  /* INPUT ONLY */
   socket.on("move", (keys) => {
     socket.keys = keys;
   });
@@ -72,7 +70,7 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ---------------- 🔥 SERVER GAME LOOP (FIX) ---------------- */
+/* ---------------- SERVER MOVEMENT LOOP ---------------- */
 setInterval(() => {
   const sockets = [...io.sockets.sockets.values()];
 
@@ -89,9 +87,8 @@ setInterval(() => {
   }
 
   io.emit("state", players);
-}, 50);
+}, 30); // 🔥 faster = smoother
 
-/* ---------------- START ---------------- */
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
