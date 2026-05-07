@@ -37,16 +37,18 @@ io.on("connection", (socket) => {
     data: players[socket.id]
   });
 
-  /* MOVE */
-  socket.on("move", (data) => {
+  /* ---------------- INPUT MOVEMENT (FIXED) ---------------- */
+  socket.on("move", (keys) => {
     const p = players[socket.id];
-    if (!p || !data) return;
+    if (!p) return;
 
-    p.x = data.x;
-    p.y = data.y;
+    if (keys.w) p.y -= 4;
+    if (keys.s) p.y += 4;
+    if (keys.a) p.x -= 4;
+    if (keys.d) p.x += 4;
   });
 
-  /* SHOOT (basic hit test) */
+  /* ---------------- SHOOT ---------------- */
   socket.on("shoot", (bullet) => {
     if (!bullet) return;
 
@@ -77,7 +79,7 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ---------------- FIXED SYNC LOOP ---------------- */
+/* ---------------- STATE SYNC ---------------- */
 setInterval(() => {
   io.emit("state", players);
 }, 50);
