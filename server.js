@@ -18,6 +18,7 @@ app.get("/", (req, res) => {
 
 /* ---------------- STATE ---------------- */
 let players = {};
+let bullets = [];
 
 /* ---------------- SOCKET ---------------- */
 io.on("connection", (socket) => {
@@ -35,27 +36,18 @@ io.on("connection", (socket) => {
     socket.keys = keys;
   });
 
-  socket.on("shoot", (bullet) => {
-    if (!bullet) return;
+  /* 🔥 SHOOT = CREATE BULLET ON SERVER */
+  socket.on("shoot", (data) => {
+    const p = players[socket.id];
+    if (!p) return;
 
-    for (let id in players) {
-      if (id === socket.id) continue;
-
-      const p = players[id];
-      const dx = p.x - bullet.x;
-      const dy = p.y - bullet.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist < 25) {
-        p.hp -= 20;
-
-        if (p.hp <= 0) {
-          p.x = Math.random() * 800;
-          p.y = Math.random() * 600;
-          p.hp = 100;
-        }
-      }
-    }
+    bullets.push({
+      x: p.x,
+      y: p.y,
+      vx: Math.cos(data.angle) * 10,
+      vy: Math.sin(data.angle) * 10,
+      owner: socket.id
+    });
   });
 
   socket.on("disconnect", () => {
@@ -65,7 +57,9 @@ io.on("connection", (socket) => {
 });
 
 /* ---------------- GAME LOOP ---------------- */
-function tick() {
+setInterval(() => {
+
+  /* movement */
   const sockets = [...io.sockets.sockets.values()];
 
   for (let socket of sockets) {
@@ -80,11 +74,47 @@ function tick() {
     if (k.d) p.x += 4;
   }
 
-  io.emit("state", players);
-}
+  /* bullets */
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
 
-/* 60ms = smooth + stable */
-setInterval(tick, 60);
+    b.x += b.vx;
+    b.y += b.vy;
+
+    for (let id in players) {
+      if (id === b.owner) continue;
+
+      const p = players[id];
+
+      const dx = p.x - b.x;
+      const dy = p.y - b.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < 20) {
+        p.hp -= 20;
+        bullets.splice(i, 1);
+
+        if (p.hp <= 0) {
+          p.x = Math.random() * 800;
+          p.y = Math.random() * 600;
+          p.hp = 100;
+        }
+
+        break;
+      }
+    }
+
+    if (
+      b.x < 0 || b.x > 1200 ||
+      b.y < 0 || b.y > 800
+    ) {
+      bullets.splice(i, 1);
+    }
+  }
+
+  io.emit("state", { players, bullets });
+
+}, 60);
 
 server.listen(process.env.PORT || 3000, () => {
   console.log("Server running");
