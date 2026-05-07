@@ -3,15 +3,8 @@
 <head>
   <title>Brawler Game</title>
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: #111;
-    }
-    canvas {
-      display: block;
-      background: #222;
-    }
+    body { margin: 0; overflow: hidden; background: #111; }
+    canvas { display: block; background: #222; }
   </style>
 </head>
 <body>
@@ -29,11 +22,11 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
+/* ---------------- INPUT ---------------- */
 const keys = {};
 
-/* ---------------- STATE ---------------- */
-const serverState = {};
-const renderState = {};
+/* ---------------- SNAPSHOT BUFFER ---------------- */
+const snapshots = {};
 
 let myId = null;
 const bullets = [];
@@ -44,20 +37,19 @@ document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
 /* ---------------- SHOOT ---------------- */
 document.addEventListener("click", (e) => {
-  const me = renderState[myId];
+  const me = snapshots[myId]?.slice(-1)[0];
   if (!me) return;
 
   const angle = Math.atan2(e.clientY - me.y, e.clientX - me.x);
 
-  const bullet = {
+  bullets.push({
     x: me.x,
     y: me.y,
     vx: Math.cos(angle) * 8,
     vy: Math.sin(angle) * 8
-  };
+  });
 
-  bullets.push(bullet);
-  socket.emit("shoot", bullet);
+  socket.emit("shoot", bullets[bullets.length - 1]);
 });
 
 /* ---------------- SOCKET ---------------- */
@@ -67,45 +59,38 @@ socket.on("connect", () => {
 
 socket.on("init", (data) => {
   for (let id in data) {
-    serverState[id] = data[id];
-    renderState[id] = { ...data[id] };
+    snapshots[id] = [{
+      ...data[id],
+      t: Date.now()
+    }];
   }
 });
 
 socket.on("state", (data) => {
+  const now = Date.now();
+
   for (let id in data) {
-    if (!serverState[id]) {
-      serverState[id] = data[id];
-      renderState[id] = { ...data[id] };
-    }
+    if (!snapshots[id]) snapshots[id] = [];
 
-    serverState[id] = data[id];
-  }
+    snapshots[id].push({
+      x: data[id].x,
+      y: data[id].y,
+      hp: data[id].hp,
+      t: now
+    });
 
-  for (let id in serverState) {
-    if (!data[id]) {
-      delete serverState[id];
-      delete renderState[id];
+    if (snapshots[id].length > 10) {
+      snapshots[id].shift();
     }
   }
 });
 
 socket.on("remove", (id) => {
-  delete serverState[id];
-  delete renderState[id];
+  delete snapshots[id];
 });
 
-/* ---------------- UPDATE (CLIENT PREDICTION) ---------------- */
+/* ---------------- INPUT SEND ---------------- */
 function update() {
-  const me = renderState[myId];
-  if (!me) return;
-
-  /* 🔥 instant movement (NO waiting for server) */
-  if (keys["w"]) me.y -= 4;
-  if (keys["s"]) me.y += 4;
-  if (keys["a"]) me.x -= 4;
-  if (keys["d"]) me.x += 4;
-
   socket.emit("input", {
     w: keys["w"],
     a: keys["a"],
@@ -113,7 +98,6 @@ function update() {
     d: keys["d"]
   });
 
-  /* bullets */
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
 
@@ -129,38 +113,35 @@ function update() {
   }
 }
 
-/* ---------------- DRAW (SMOOTH OTHERS ONLY) ---------------- */
+/* ---------------- INTERPOLATION (NO JITTER) ---------------- */
+function getState(id) {
+  const list = snapshots[id];
+  if (!list || list.length === 0) return null;
+
+  const renderTime = Date.now() - 100;
+
+  let i = list.length - 1;
+  while (i > 0 && list[i].t > renderTime) i--;
+
+  return list[i];
+}
+
+/* ---------------- DRAW ---------------- */
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  for (let id in serverState) {
+  for (let id in snapshots) {
 
-    if (!renderState[id]) {
-      renderState[id] = { ...serverState[id] };
-    }
+    const state = getState(id);
+    if (!state) continue;
 
-    const isMe = id === myId;
-
-    if (!isMe) {
-      /* smooth ONLY others */
-      renderState[id].x += (serverState[id].x - renderState[id].x) * 0.35;
-      renderState[id].y += (serverState[id].y - renderState[id].y) * 0.35;
-    } else {
-      /* lock self to prediction */
-      renderState[id].x = serverState[id].x;
-      renderState[id].y = serverState[id].y;
-    }
-
-    ctx.fillStyle = isMe ? "cyan" : "red";
+    ctx.fillStyle = id === myId ? "cyan" : "red";
     ctx.beginPath();
-    ctx.arc(renderState[id].x, renderState[id].y, 20, 0, Math.PI * 2);
+    ctx.arc(state.x, state.y, 20, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "white";
-    ctx.fillText("HP: " + (serverState[id].hp || 100),
-      renderState[id].x - 15,
-      renderState[id].y - 30
-    );
+    ctx.fillText("HP: " + (state.hp || 100), state.x - 15, state.y - 30);
   }
 
   ctx.fillStyle = "yellow";
