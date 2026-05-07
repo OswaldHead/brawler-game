@@ -1,167 +1,121 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Brawler Game</title>
-  <style>
-    body { margin: 0; overflow: hidden; background: #111; }
-    canvas { display: block; background: #222; }
-  </style>
-</head>
-<body>
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const path = require("path");
 
-<canvas id="game"></canvas>
+const app = express();
+const server = http.createServer(app);
 
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script>
-
-const socket = io();
-
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
-
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-
-/* ---------------- INPUT ---------------- */
-const keys = {};
-
-/* ---------------- SNAPSHOT BUFFER ---------------- */
-const snapshots = {};
-
-let myId = null;
-const bullets = [];
-
-/* ---------------- INPUT ---------------- */
-document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
-document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
-
-/* ---------------- SHOOT ---------------- */
-document.addEventListener("click", (e) => {
-  const me = snapshots[myId]?.slice(-1)[0];
-  if (!me) return;
-
-  const angle = Math.atan2(e.clientY - me.y, e.clientX - me.x);
-
-  bullets.push({
-    x: me.x,
-    y: me.y,
-    vx: Math.cos(angle) * 8,
-    vy: Math.sin(angle) * 8
-  });
-
-  socket.emit("shoot", bullets[bullets.length - 1]);
+const io = new Server(server, {
+  cors: { origin: "*" }
 });
+
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+/* ---------------- STATE ---------------- */
+let players = {};
+let bullets = [];
 
 /* ---------------- SOCKET ---------------- */
-socket.on("connect", () => {
-  myId = socket.id;
-});
+io.on("connection", (socket) => {
+  console.log("CONNECTED:", socket.id);
 
-socket.on("init", (data) => {
-  for (let id in data) {
-    snapshots[id] = [{
-      ...data[id],
-      t: Date.now()
-    }];
-  }
-});
+  players[socket.id] = {
+    x: Math.random() * 800,
+    y: Math.random() * 600,
+    hp: 100
+  };
 
-socket.on("state", (data) => {
-  const now = Date.now();
+  socket.emit("init", players);
 
-  for (let id in data) {
-    if (!snapshots[id]) snapshots[id] = [];
-
-    snapshots[id].push({
-      x: data[id].x,
-      y: data[id].y,
-      hp: data[id].hp,
-      t: now
-    });
-
-    if (snapshots[id].length > 10) {
-      snapshots[id].shift();
-    }
-  }
-});
-
-socket.on("remove", (id) => {
-  delete snapshots[id];
-});
-
-/* ---------------- INPUT SEND ---------------- */
-function update() {
-  socket.emit("input", {
-    w: keys["w"],
-    a: keys["a"],
-    s: keys["s"],
-    d: keys["d"]
+  socket.on("input", (keys) => {
+    socket.keys = keys;
   });
 
+  /* 🔥 SHOOT = CREATE BULLET ON SERVER */
+  socket.on("shoot", (data) => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    bullets.push({
+      x: p.x,
+      y: p.y,
+      vx: Math.cos(data.angle) * 10,
+      vy: Math.sin(data.angle) * 10,
+      owner: socket.id
+    });
+  });
+
+  socket.on("disconnect", () => {
+    delete players[socket.id];
+    io.emit("remove", socket.id);
+  });
+});
+
+/* ---------------- GAME LOOP ---------------- */
+setInterval(() => {
+
+  /* movement */
+  const sockets = [...io.sockets.sockets.values()];
+
+  for (let socket of sockets) {
+    const p = players[socket.id];
+    if (!p || !socket.keys) continue;
+
+    const k = socket.keys;
+
+    if (k.w) p.y -= 4;
+    if (k.s) p.y += 4;
+    if (k.a) p.x -= 4;
+    if (k.d) p.x += 4;
+  }
+
+  /* bullets */
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
 
     b.x += b.vx;
     b.y += b.vy;
 
+    for (let id in players) {
+      if (id === b.owner) continue;
+
+      const p = players[id];
+
+      const dx = p.x - b.x;
+      const dy = p.y - b.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < 20) {
+        p.hp -= 20;
+        bullets.splice(i, 1);
+
+        if (p.hp <= 0) {
+          p.x = Math.random() * 800;
+          p.y = Math.random() * 600;
+          p.hp = 100;
+        }
+
+        break;
+      }
+    }
+
     if (
-      b.x < 0 || b.x > canvas.width ||
-      b.y < 0 || b.y > canvas.height
+      b.x < 0 || b.x > 1200 ||
+      b.y < 0 || b.y > 800
     ) {
       bullets.splice(i, 1);
     }
   }
-}
 
-/* ---------------- INTERPOLATION (NO JITTER) ---------------- */
-function getState(id) {
-  const list = snapshots[id];
-  if (!list || list.length === 0) return null;
+  io.emit("state", { players, bullets });
 
-  const renderTime = Date.now() - 100;
+}, 60);
 
-  let i = list.length - 1;
-  while (i > 0 && list[i].t > renderTime) i--;
-
-  return list[i];
-}
-
-/* ---------------- DRAW ---------------- */
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  for (let id in snapshots) {
-
-    const state = getState(id);
-    if (!state) continue;
-
-    ctx.fillStyle = id === myId ? "cyan" : "red";
-    ctx.beginPath();
-    ctx.arc(state.x, state.y, 20, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "white";
-    ctx.fillText("HP: " + (state.hp || 100), state.x - 15, state.y - 30);
-  }
-
-  ctx.fillStyle = "yellow";
-  bullets.forEach(b => {
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
-    ctx.fill();
-  });
-}
-
-/* ---------------- LOOP ---------------- */
-function loop() {
-  update();
-  draw();
-  requestAnimationFrame(loop);
-}
-
-loop();
-
-</script>
-
-</body>
-</html>
+server.listen(process.env.PORT || 3000, () => {
+  console.log("Server running");
+});
