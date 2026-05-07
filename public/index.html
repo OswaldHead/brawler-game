@@ -7,9 +7,7 @@
       margin: 0;
       overflow: hidden;
       background: #111;
-      font-family: Arial, sans-serif;
     }
-
     canvas {
       display: block;
       margin: auto;
@@ -21,11 +19,8 @@
 
 <canvas id="game"></canvas>
 
-<!-- Socket.IO client -->
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-
 <script>
-/* 🔥 CONNECT TO YOUR RENDER BACKEND */
 const socket = io("https://brawler-game.onrender.com");
 
 const canvas = document.getElementById("game");
@@ -40,7 +35,7 @@ const bullets = [];
 
 let myId = null;
 
-/* ---------------- CONTROLS ---------------- */
+/* ---------------- INPUT ---------------- */
 document.addEventListener("keydown", e => {
   keys[e.key.toLowerCase()] = true;
 });
@@ -67,13 +62,15 @@ document.addEventListener("click", (e) => {
   socket.emit("shoot", bullet);
 });
 
-/* ---------------- SOCKET EVENTS ---------------- */
+/* ---------------- SOCKET ---------------- */
 socket.on("connect", () => {
   myId = socket.id;
 });
 
 socket.on("currentPlayers", (serverPlayers) => {
-  Object.assign(players, serverPlayers);
+  for (let id in serverPlayers) {
+    players[id] = serverPlayers[id];
+  }
 });
 
 socket.on("newPlayer", ({ id, data }) => {
@@ -82,6 +79,22 @@ socket.on("newPlayer", ({ id, data }) => {
 
 socket.on("removePlayer", (id) => {
   delete players[id];
+});
+
+/* 🔥 FIXED STATE SYNC */
+socket.on("state", (serverPlayers) => {
+
+  // remove missing players
+  for (let id in players) {
+    if (!serverPlayers[id]) {
+      delete players[id];
+    }
+  }
+
+  // update players
+  for (let id in serverPlayers) {
+    players[id] = serverPlayers[id];
+  }
 });
 
 /* ---------------- UPDATE ---------------- */
@@ -115,7 +128,6 @@ function update() {
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  /* players */
   for (let id in players) {
     const p = players[id];
 
@@ -128,7 +140,6 @@ function draw() {
     ctx.fillText("HP: " + p.hp, p.x - 15, p.y - 30);
   }
 
-  /* bullets */
   ctx.fillStyle = "yellow";
   bullets.forEach(b => {
     ctx.beginPath();
@@ -137,7 +148,7 @@ function draw() {
   });
 }
 
-/* ---------------- GAME LOOP ---------------- */
+/* ---------------- LOOP ---------------- */
 function loop() {
   update();
   draw();
