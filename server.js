@@ -48,6 +48,7 @@ io.on("connection", (socket) => {
 
       if (dist < 25) {
         p.hp -= 20;
+
         if (p.hp <= 0) {
           p.x = Math.random() * 800;
           p.y = Math.random() * 600;
@@ -82,11 +83,9 @@ function tick() {
   io.emit("state", players);
 }
 
-/* 🔥 100ms snapshot = smooth + low lag */
-setInterval(tick, 100);
+/* 60ms = smooth + stable */
+setInterval(tick, 60);
 
-const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+server.listen(process.env.PORT || 3000, () => {
+  console.log("Server running");
 });
