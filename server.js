@@ -29,14 +29,9 @@ io.on("connection", (socket) => {
     hp: 100
   };
 
-  socket.emit("currentPlayers", players);
-  socket.broadcast.emit("newPlayer", {
-    id: socket.id,
-    data: players[socket.id]
-  });
+  socket.emit("init", players);
 
-  /* store input only */
-  socket.on("move", (keys) => {
+  socket.on("input", (keys) => {
     socket.keys = keys;
   });
 
@@ -47,14 +42,12 @@ io.on("connection", (socket) => {
       if (id === socket.id) continue;
 
       const p = players[id];
-
       const dx = p.x - bullet.x;
       const dy = p.y - bullet.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist < 25) {
         p.hp -= 20;
-
         if (p.hp <= 0) {
           p.x = Math.random() * 800;
           p.y = Math.random() * 600;
@@ -66,12 +59,12 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     delete players[socket.id];
-    io.emit("removePlayer", socket.id);
+    io.emit("remove", socket.id);
   });
 });
 
-/* ---------------- GAME LOOP (OPTIMISED) ---------------- */
-setInterval(() => {
+/* ---------------- GAME LOOP ---------------- */
+function tick() {
   const sockets = [...io.sockets.sockets.values()];
 
   for (let socket of sockets) {
@@ -87,7 +80,10 @@ setInterval(() => {
   }
 
   io.emit("state", players);
-}, 60); // 🔥 slower = smoother on hosting
+}
+
+/* 🔥 100ms snapshot = smooth + low lag */
+setInterval(tick, 100);
 
 const PORT = process.env.PORT || 3000;
 
