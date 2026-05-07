@@ -21,7 +21,7 @@
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 
-const socket = io(); // same domain = best stability
+const socket = io();
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -30,26 +30,19 @@ canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 const keys = {};
-
-/* 🔥 TARGETS + SMOOTH POSITIONS */
 const targets = {};
-const players = {};
+const renderPlayers = {};
 const bullets = [];
 
 let myId = null;
 
 /* ---------------- INPUT ---------------- */
-document.addEventListener("keydown", e => {
-  keys[e.key.toLowerCase()] = true;
-});
-
-document.addEventListener("keyup", e => {
-  keys[e.key.toLowerCase()] = false;
-});
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
 /* ---------------- SHOOT ---------------- */
 document.addEventListener("click", (e) => {
-  const me = players[myId];
+  const me = renderPlayers[myId];
   if (!me) return;
 
   const angle = Math.atan2(e.clientY - me.y, e.clientX - me.x);
@@ -70,30 +63,30 @@ socket.on("connect", () => {
   myId = socket.id;
 });
 
-socket.on("currentPlayers", (serverPlayers) => {
-  for (let id in serverPlayers) {
-    targets[id] = serverPlayers[id];
-    players[id] = { x: serverPlayers[id].x, y: serverPlayers[id].y };
+socket.on("currentPlayers", (data) => {
+  for (let id in data) {
+    targets[id] = data[id];
+    renderPlayers[id] = { x: data[id].x, y: data[id].y };
   }
 });
 
 socket.on("newPlayer", ({ id, data }) => {
   targets[id] = data;
-  players[id] = { x: data.x, y: data.y };
+  renderPlayers[id] = { x: data.x, y: data.y };
 });
 
 socket.on("removePlayer", (id) => {
   delete targets[id];
-  delete players[id];
+  delete renderPlayers[id];
 });
 
-/* 🔥 STATE UPDATE */
+/* ---------------- STATE UPDATE ---------------- */
 socket.on("state", (serverPlayers) => {
 
   for (let id in serverPlayers) {
     if (!targets[id]) {
       targets[id] = serverPlayers[id];
-      players[id] = { x: serverPlayers[id].x, y: serverPlayers[id].y };
+      renderPlayers[id] = { x: serverPlayers[id].x, y: serverPlayers[id].y };
     }
 
     targets[id].x = serverPlayers[id].x;
@@ -104,15 +97,21 @@ socket.on("state", (serverPlayers) => {
   for (let id in targets) {
     if (!serverPlayers[id]) {
       delete targets[id];
-      delete players[id];
+      delete renderPlayers[id];
     }
   }
 });
 
 /* ---------------- UPDATE ---------------- */
 function update() {
-  const me = players[myId];
+  const me = renderPlayers[myId];
   if (!me) return;
+
+  /* 🔥 CLIENT PREDICTION (fixes lag feel) */
+  if (keys["w"]) me.y -= 4;
+  if (keys["s"]) me.y += 4;
+  if (keys["a"]) me.x -= 4;
+  if (keys["d"]) me.x += 4;
 
   socket.emit("move", {
     w: keys["w"],
@@ -136,27 +135,33 @@ function update() {
   }
 }
 
-/* ---------------- DRAW (SMOOTHING HERE) ---------------- */
+/* ---------------- DRAW (SMOOTHING) ---------------- */
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   for (let id in targets) {
 
-    if (!players[id]) {
-      players[id] = { x: targets[id].x, y: targets[id].y };
+    if (!renderPlayers[id]) {
+      renderPlayers[id] = { x: targets[id].x, y: targets[id].y };
     }
 
-    // 🔥 SMOOTH INTERPOLATION
-    players[id].x += (targets[id].x - players[id].x) * 0.15;
-    players[id].y += (targets[id].y - players[id].y) * 0.15;
+    const isMe = id === myId;
 
-    ctx.fillStyle = id === myId ? "cyan" : "red";
+    if (!isMe) {
+      renderPlayers[id].x += (targets[id].x - renderPlayers[id].x) * 0.25;
+      renderPlayers[id].y += (targets[id].y - renderPlayers[id].y) * 0.25;
+    } else {
+      renderPlayers[id].x = targets[id].x;
+      renderPlayers[id].y = targets[id].y;
+    }
+
+    ctx.fillStyle = isMe ? "cyan" : "red";
     ctx.beginPath();
-    ctx.arc(players[id].x, players[id].y, 20, 0, Math.PI * 2);
+    ctx.arc(renderPlayers[id].x, renderPlayers[id].y, 20, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "white";
-    ctx.fillText("HP: " + (targets[id].hp || 100), players[id].x - 15, players[id].y - 30);
+    ctx.fillText("HP: " + targets[id].hp, renderPlayers[id].x - 15, renderPlayers[id].y - 30);
   }
 
   ctx.fillStyle = "yellow";
