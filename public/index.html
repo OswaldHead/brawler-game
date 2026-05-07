@@ -30,11 +30,13 @@ canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 const keys = {};
-const targets = {};
-const renderPlayers = {};
-const bullets = [];
+
+/* ---------------- STATE ---------------- */
+const serverState = {};
+const renderState = {};
 
 let myId = null;
+const bullets = [];
 
 /* ---------------- INPUT ---------------- */
 document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
@@ -42,7 +44,7 @@ document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
 /* ---------------- SHOOT ---------------- */
 document.addEventListener("click", (e) => {
-  const me = renderPlayers[myId];
+  const me = renderState[myId];
   if (!me) return;
 
   const angle = Math.atan2(e.clientY - me.y, e.clientX - me.x);
@@ -63,63 +65,55 @@ socket.on("connect", () => {
   myId = socket.id;
 });
 
-socket.on("currentPlayers", (data) => {
+socket.on("init", (data) => {
   for (let id in data) {
-    targets[id] = data[id];
-    renderPlayers[id] = { x: data[id].x, y: data[id].y };
+    serverState[id] = data[id];
+    renderState[id] = { ...data[id] };
   }
 });
 
-socket.on("newPlayer", ({ id, data }) => {
-  targets[id] = data;
-  renderPlayers[id] = { x: data.x, y: data.y };
-});
-
-socket.on("removePlayer", (id) => {
-  delete targets[id];
-  delete renderPlayers[id];
-});
-
-/* ---------------- STATE UPDATE ---------------- */
-socket.on("state", (serverPlayers) => {
-
-  for (let id in serverPlayers) {
-    if (!targets[id]) {
-      targets[id] = serverPlayers[id];
-      renderPlayers[id] = { x: serverPlayers[id].x, y: serverPlayers[id].y };
+socket.on("state", (data) => {
+  for (let id in data) {
+    if (!serverState[id]) {
+      serverState[id] = data[id];
+      renderState[id] = { ...data[id] };
     }
 
-    targets[id].x = serverPlayers[id].x;
-    targets[id].y = serverPlayers[id].y;
-    targets[id].hp = serverPlayers[id].hp;
+    serverState[id] = data[id];
   }
 
-  for (let id in targets) {
-    if (!serverPlayers[id]) {
-      delete targets[id];
-      delete renderPlayers[id];
+  for (let id in serverState) {
+    if (!data[id]) {
+      delete serverState[id];
+      delete renderState[id];
     }
   }
 });
 
-/* ---------------- UPDATE ---------------- */
+socket.on("remove", (id) => {
+  delete serverState[id];
+  delete renderState[id];
+});
+
+/* ---------------- UPDATE (CLIENT PREDICTION) ---------------- */
 function update() {
-  const me = renderPlayers[myId];
+  const me = renderState[myId];
   if (!me) return;
 
-  /* 🔥 CLIENT PREDICTION (fixes lag feel) */
+  /* 🔥 instant movement (NO waiting for server) */
   if (keys["w"]) me.y -= 4;
   if (keys["s"]) me.y += 4;
   if (keys["a"]) me.x -= 4;
   if (keys["d"]) me.x += 4;
 
-  socket.emit("move", {
+  socket.emit("input", {
     w: keys["w"],
     a: keys["a"],
     s: keys["s"],
     d: keys["d"]
   });
 
+  /* bullets */
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
 
@@ -135,33 +129,38 @@ function update() {
   }
 }
 
-/* ---------------- DRAW (SMOOTHING) ---------------- */
+/* ---------------- DRAW (SMOOTH OTHERS ONLY) ---------------- */
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  for (let id in targets) {
+  for (let id in serverState) {
 
-    if (!renderPlayers[id]) {
-      renderPlayers[id] = { x: targets[id].x, y: targets[id].y };
+    if (!renderState[id]) {
+      renderState[id] = { ...serverState[id] };
     }
 
     const isMe = id === myId;
 
     if (!isMe) {
-      renderPlayers[id].x += (targets[id].x - renderPlayers[id].x) * 0.25;
-      renderPlayers[id].y += (targets[id].y - renderPlayers[id].y) * 0.25;
+      /* smooth ONLY others */
+      renderState[id].x += (serverState[id].x - renderState[id].x) * 0.35;
+      renderState[id].y += (serverState[id].y - renderState[id].y) * 0.35;
     } else {
-      renderPlayers[id].x = targets[id].x;
-      renderPlayers[id].y = targets[id].y;
+      /* lock self to prediction */
+      renderState[id].x = serverState[id].x;
+      renderState[id].y = serverState[id].y;
     }
 
     ctx.fillStyle = isMe ? "cyan" : "red";
     ctx.beginPath();
-    ctx.arc(renderPlayers[id].x, renderPlayers[id].y, 20, 0, Math.PI * 2);
+    ctx.arc(renderState[id].x, renderState[id].y, 20, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "white";
-    ctx.fillText("HP: " + targets[id].hp, renderPlayers[id].x - 15, renderPlayers[id].y - 30);
+    ctx.fillText("HP: " + (serverState[id].hp || 100),
+      renderState[id].x - 15,
+      renderState[id].y - 30
+    );
   }
 
   ctx.fillStyle = "yellow";
