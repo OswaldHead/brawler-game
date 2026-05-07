@@ -10,7 +10,6 @@
     }
     canvas {
       display: block;
-      margin: auto;
       background: #222;
     }
   </style>
@@ -22,7 +21,7 @@
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 
-const socket = io("https://brawler-game.onrender.com");
+const socket = io(); /* 🔥 FIX: same-origin connection */
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -82,7 +81,7 @@ socket.on("removePlayer", (id) => {
   delete players[id];
 });
 
-/* ---------------- STATE SYNC ---------------- */
+/* 🔥 STATE SYNC (FIXED) */
 socket.on("state", (serverPlayers) => {
 
   for (let id in players) {
@@ -101,7 +100,7 @@ function update() {
   const me = players[myId];
   if (!me) return;
 
-  /* 🔥 SEND INPUT ONLY (FIXED) */
+  /* send input only */
   socket.emit("move", {
     w: keys["w"],
     a: keys["a"],
