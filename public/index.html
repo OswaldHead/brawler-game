@@ -21,6 +21,7 @@
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
+
 const socket = io("https://brawler-game.onrender.com");
 
 const canvas = document.getElementById("game");
@@ -81,17 +82,15 @@ socket.on("removePlayer", (id) => {
   delete players[id];
 });
 
-/* 🔥 FIXED STATE SYNC */
+/* ---------------- STATE SYNC ---------------- */
 socket.on("state", (serverPlayers) => {
 
-  // remove missing players
   for (let id in players) {
     if (!serverPlayers[id]) {
       delete players[id];
     }
   }
 
-  // update players
   for (let id in serverPlayers) {
     players[id] = serverPlayers[id];
   }
@@ -102,12 +101,13 @@ function update() {
   const me = players[myId];
   if (!me) return;
 
-  if (keys["w"]) me.y -= 4;
-  if (keys["s"]) me.y += 4;
-  if (keys["a"]) me.x -= 4;
-  if (keys["d"]) me.x += 4;
-
-  socket.emit("move", { x: me.x, y: me.y });
+  /* 🔥 SEND INPUT ONLY (FIXED) */
+  socket.emit("move", {
+    w: keys["w"],
+    a: keys["a"],
+    s: keys["s"],
+    d: keys["d"]
+  });
 
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
@@ -156,6 +156,7 @@ function loop() {
 }
 
 loop();
+
 </script>
 
 </body>
