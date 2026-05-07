@@ -16,7 +16,7 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-/* ---------------- GAME STATE ---------------- */
+/* ---------------- STATE ---------------- */
 let players = {};
 
 /* ---------------- SOCKET ---------------- */
@@ -35,7 +35,7 @@ io.on("connection", (socket) => {
     data: players[socket.id]
   });
 
-  /* INPUT ONLY */
+  /* store input only */
   socket.on("move", (keys) => {
     socket.keys = keys;
   });
@@ -70,7 +70,7 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ---------------- SERVER MOVEMENT LOOP ---------------- */
+/* ---------------- GAME LOOP (OPTIMISED) ---------------- */
 setInterval(() => {
   const sockets = [...io.sockets.sockets.values()];
 
@@ -87,7 +87,7 @@ setInterval(() => {
   }
 
   io.emit("state", players);
-}, 30); // 🔥 faster = smoother
+}, 60); // 🔥 slower = smoother on hosting
 
 const PORT = process.env.PORT || 3000;
 
