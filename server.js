@@ -37,18 +37,11 @@ io.on("connection", (socket) => {
     data: players[socket.id]
   });
 
-  /* ---------------- INPUT MOVEMENT (FIXED) ---------------- */
+  /* 🔥 STORE INPUT ONLY (IMPORTANT FIX) */
   socket.on("move", (keys) => {
-    const p = players[socket.id];
-    if (!p) return;
-
-    if (keys.w) p.y -= 4;
-    if (keys.s) p.y += 4;
-    if (keys.a) p.x -= 4;
-    if (keys.d) p.x += 4;
+    socket.keys = keys;
   });
 
-  /* ---------------- SHOOT ---------------- */
   socket.on("shoot", (bullet) => {
     if (!bullet) return;
 
@@ -79,8 +72,22 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ---------------- STATE SYNC ---------------- */
+/* ---------------- 🔥 SERVER GAME LOOP (FIX) ---------------- */
 setInterval(() => {
+  const sockets = [...io.sockets.sockets.values()];
+
+  for (let socket of sockets) {
+    const p = players[socket.id];
+    if (!p || !socket.keys) continue;
+
+    const k = socket.keys;
+
+    if (k.w) p.y -= 4;
+    if (k.s) p.y += 4;
+    if (k.a) p.x -= 4;
+    if (k.d) p.x += 4;
+  }
+
   io.emit("state", players);
 }, 50);
 
